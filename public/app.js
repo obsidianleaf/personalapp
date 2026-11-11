@@ -26,20 +26,28 @@ function loadSettings() {
   } catch { return { names: {}, currency: 'KZT', budget: 0, token: '', pinHash: '', salt: '' }; }
 }
 let settings = loadSettings();
-const saveSettings = () => localStorage.setItem('diary.settings', JSON.stringify(settings));
+const saveSettings = () => { try { localStorage.setItem('diary.settings', JSON.stringify(settings)); } catch {} };
 const sections = () => DEFAULT_SECTIONS.map(s => ({ ...s, name: settings.names[s.id] || s.name }));
 const sec = id => sections().find(s => s.id === id) || sections()[0];
 const money = (n, cur) => `${Number(n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ${SYMBOL[cur || settings.currency] || cur || ''}`.trim();
 
 // ---------- IndexedDB ----------
-const dbp = new Promise((res, rej) => {
-  const r = indexedDB.open('diary', 1);
-  r.onupgradeneeded = () => r.result.createObjectStore('entries', { keyPath: 'id', autoIncrement: true });
-  r.onsuccess = () => res(r.result);
-  r.onerror = () => rej(r.error);
+// Если IndexedDB недоступна (приватный режим, песочница), работаем в памяти.
+const mem = new Map(); let memId = 0;
+const dbp = new Promise(res => {
+  try {
+    const r = indexedDB.open('diary', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('entries', { keyPath: 'id', autoIncrement: true });
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => res(null);
+  } catch { res(null); }
 });
 async function tx(mode, fn) {
   const db = await dbp;
+  if (!db) {
+    const probe = fn({ getAll: () => ({ result: [...mem.values()] }), put: e => { if (!e.id) e.id = ++memId; mem.set(e.id, e); return { result: e.id }; }, delete: id => { mem.delete(id); return {}; } });
+    return probe && probe.result;
+  }
   return new Promise((res, rej) => {
     const t = db.transaction('entries', mode); const st = t.objectStore('entries');
     const req = fn(st); t.oncomplete = () => res(req && req.result); t.onerror = () => rej(t.error);
@@ -332,7 +340,7 @@ function sheetHTML() {
       <div class="row"><div class="grow"><label>Категория</label><input name="category" list="cats" value="${esc(e.category || '')}"></div><div class="grow"><label>Дата</label><input name="date" type="date" value="${esc(e.date)}"></div></div>
       <label>Заметка</label><textarea name="note" rows="2">${esc(e.note || '')}</textarea></div>
       <datalist id="cats">${CATS.map(c => `<option value="${c}">`).join('')}</datalist>
-      <div class="btns"><button class="btn danger" data-act="delete">Удалить</button><button class="btn" data-act="close">Закрыть</button><button class="btn primary" data-act="saveedit">Сохранить</button></div></div></div>`;
+      <div class="btns"><button class="btn danger" data-act="delete">${sh.confirmDelete ? 'Точно удалить?' : 'Удалить'}</button><button class="btn" data-act="close">Закрыть</button><button class="btn primary" data-act="saveedit">Сохранить</button></div></div></div>`;
   }
   return '';
 }
@@ -391,7 +399,7 @@ $app.addEventListener('click', async e => {
       await dbPut({ ...state.sheet.entry, section: g('section'), type: g('type'), title: g('title') || 'Без названия', amount: isNaN(amount) ? null : amount, currency: g('currency') || null, category: g('category') || null, date: g('date') || today(), note: g('note'), needsReview: false });
       await reload(); state.sheet = null; break;
     }
-    case 'delete': if (confirm('Удалить запись?')) { await dbDel(state.sheet.entry.id); urlCache.delete(state.sheet.entry.id); await reload(); state.sheet = null; } break;
+    case 'delete': if (!state.sheet.confirmDelete) { state.sheet.confirmDelete = true; break; } await dbDel(state.sheet.entry.id); urlCache.delete(state.sheet.entry.id); await reload(); state.sheet = null; break;
     case 'setpin': state.pin = ''; state.sheet = { type: 'setpin' }; break;
     case 'rmpin': settings.pinHash = ''; settings.salt = ''; saveSettings(); toast('PIN убран'); return;
     case 'pin': await pinPress(id); return;
@@ -414,7 +422,9 @@ window.addEventListener('online', processPending);
 // ---------- Старт ----------
 (async function init() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-  await reload(); render();
+  await reload();
+  if (window.__DEMO__ && !entries.length) await seedDemo();
+  render();
   // Фото из «Поделиться» (share target)
   if (new URLSearchParams(location.search).get('shared')) {
     history.replaceState(null, '', '/');
@@ -423,3 +433,28 @@ window.addEventListener('online', processPending);
   }
   if (navigator.onLine) processPending();
 })();
+
+// Демо-данные для предпросмотра (включаются через window.__DEMO__ = true)
+async function seedDemo() {
+  const d = n => { const x = new Date(); x.setDate(x.getDate() - n); return x.toLocaleDateString('sv'); };
+  const fin = (n, title, type, amount, category, note = '') => ({ section: 'finance', type, title, amount, currency: 'KZT', category, date: d(n), note, createdAt: Date.now() });
+  const list = [
+    fin(0, 'Продукты, Magnum', 'expense', 14500, 'еда', 'Чек Magnum, 12 позиций'),
+    fin(1, 'Такси', 'expense', 1800, 'транспорт'),
+    fin(2, 'Интернет Beeline', 'expense', 6500, 'связь', 'Квитанция №48213'),
+    fin(3, 'Netflix', 'expense', 4200, 'подписки'),
+    fin(4, 'Аренда квартиры', 'expense', 180000, 'жильё'),
+    fin(5, 'Зарплата', 'income', 450000, null),
+    fin(6, 'Кафе', 'expense', 5200, 'еда'),
+    { section: 'work', type: 'task', title: 'Созвон с заказчиком', date: d(-1), time: '15:00', note: 'Обсудить сроки по этапу 2', createdAt: Date.now() },
+    { section: 'work', type: 'task', title: 'Отправить отчёт за месяц', date: d(-3), note: '', createdAt: Date.now() },
+    { section: 'work', type: 'idea', title: 'Автоматизировать выгрузку отчётов', date: d(2), note: '', createdAt: Date.now() },
+    { section: 'health', type: 'measurement', title: 'Давление 125/80', date: d(0), note: 'Самочувствие нормальное', createdAt: Date.now() },
+    { section: 'health', type: 'workout', title: 'Бег 5 км', date: d(1), note: '28 минут', createdAt: Date.now() },
+    { section: 'health', type: 'medication', title: 'Витамин D', date: d(0), time: '09:00', note: '', createdAt: Date.now() },
+    { section: 'hobby', type: 'note', title: 'Набор акварели', date: d(2), amount: 3200, currency: 'KZT', category: 'развлечения', note: 'Купил для нового проекта', createdAt: Date.now() },
+    { section: 'hobby', type: 'note', title: 'Прочитать «Атомные привычки»', date: d(4), note: '', createdAt: Date.now() },
+  ];
+  for (const e of list.reverse()) await dbPut(e);
+  await reload();
+}
