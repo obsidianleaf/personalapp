@@ -1,0 +1,8 @@
+{
+  "name": "personalapp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Личный дневник-PWA: работа, здоровье, финансы, хобби. Голос и фото квитанций.",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}
