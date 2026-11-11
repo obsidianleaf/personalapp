@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: moi-dnevnik
+    runtime: node
+    plan: free
+    buildCommand: "echo ok"
+    startCommand: node server.js
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: APP_TOKEN
+        generateValue: true
