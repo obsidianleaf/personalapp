@@ -28,6 +28,7 @@ ADMIN_NAME="Ваше имя" ADMIN_PASSWORD="ваш-пароль" node server.js
 ```
 
 Без `DATABASE_URL` данные хранятся во встроенной базе в папке `bookshelf/data`.
+Если рядом лежит `.env.local` (его создаёт `neon deploy`), сервер берёт `DATABASE_URL` оттуда и работает с базой Neon.
 
 ## Установка для клуба (бесплатно)
 
