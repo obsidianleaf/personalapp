@@ -10,3 +10,19 @@ services:
         sync: false
       - key: APP_TOKEN
         generateValue: true
+
+  # Виртуальная книжная полка книжного клуба (папка bookshelf/)
+  - type: web
+    name: knizhnaya-polka
+    runtime: node
+    plan: free
+    rootDir: bookshelf
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: DATABASE_URL   # строка подключения PostgreSQL (например, бесплатный Neon)
+        sync: false
+      - key: ADMIN_NAME     # имя админа в чате клуба
+        sync: false
+      - key: ADMIN_PASSWORD # первый пароль админа
+        sync: false
