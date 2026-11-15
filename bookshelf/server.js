@@ -7,6 +7,12 @@ const crypto = require('crypto');
 const C = require('./public/shared.js');
 const { open } = require('./db.js');
 
+// локально: строка подключения Neon лежит в .env.local (её пишет `neon deploy`), на хостинге — в переменных окружения
+for (const f of ['.env.local', '.env']) {
+  const file = path.join(__dirname, f);
+  if (process.loadEnvFile && fs.existsSync(file)) process.loadEnvFile(file);
+}
+
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = {
